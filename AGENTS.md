@@ -37,11 +37,11 @@ ruff check custom_components/ tests/
 
 ## Why a session, not an API key
 
-Telos's `telos_` API keys are its **AI/MCP door**: they resolve only while AI is on for the instance and the account, see only AI-enabled projects (and not `aiIgnored` todos), and may make only the writes in `AI_MUTATIONS`. `boardChanged` refuses anything but a person. So the integration signs in as the user, with a magic link (`requestMagicLink` → `verifyMagicLink`), and keeps the 30-day better-auth session it gets back. Polling refreshes it. When it lapses anyway, Telos answers `UNAUTHENTICATED`, the coordinator raises `ConfigEntryAuthFailed`, and HA starts the reauth flow.
+Telos's `telos_` API keys are its **AI/MCP door**: they resolve only while AI is on for the instance and the account, see only AI-enabled projects (and not `aiIgnored` todos), and may make only the writes in `AI_MUTATIONS`. `boardChanged` refuses anything but a person. So the integration signs in as the user, with a magic link (`signInMagicLink` → `magicLinkVerify`), and keeps the 30-day better-auth session it gets back. Polling refreshes it. When it lapses anyway, Telos answers `UNAUTHENTICATED`, the coordinator raises `ConfigEntryAuthFailed`, and HA starts the reauth flow.
 
 ## Guard clauses
 
-Raise `TelosConnectionError` for network failures, and `TelosAuthError` for 401/403 or a GraphQL `UNAUTHENTICATED` error. Any other GraphQL error is a `TelosApiError` carrying the server's messages. The config flow maps these to `cannot_connect` / `invalid_link` / `request_refused`. Todo writes turn `TelosApiError` into `HomeAssistantError`, so a refusal such as "blocked by an open dependency" reaches the user.
+Raise `TelosConnectionError` for network failures, and `TelosAuthError` for 401/403 or a GraphQL `UNAUTHENTICATED` error. Any other GraphQL error is a `TelosApiError` carrying the server's messages. The config flow maps these to `cannot_connect` / `invalid_link` / `request_refused` / `rate_limited` (from the error's `code`, e.g. `TOO_MANY_REQUESTS`). Todo writes turn `TelosApiError` into `HomeAssistantError`, so a refusal such as "blocked by an open dependency" reaches the user.
 
 ## Telos rules the todo entity respects
 

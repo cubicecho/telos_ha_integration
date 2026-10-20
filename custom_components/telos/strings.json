@@ -15,7 +15,7 @@
       },
       "link": {
         "title": "Paste the magic link",
-        "description": "Telos has made a magic link for {email}. Telos has no mail provider, so the link is printed in the Telos server's log (and pre-filled here when the server exposes it). Paste the whole link or just its token.",
+        "description": "Telos has emailed a sign-in link to {email}. Paste the whole link, or just its token. Links last 15 minutes.",
         "data": {
           "magic_link": "Magic link"
         }
@@ -31,8 +31,9 @@
     "error": {
       "cannot_connect": "Failed to connect to the Telos server. Check the URL and that the server is running.",
       "invalid_link": "That magic link is invalid or has expired (links last 15 minutes). Start again to get a new one.",
-      "request_refused": "Telos refused to send a magic link. Too many sign-in attempts? Wait 15 minutes and try again.",
-      "unknown": "Unexpected error. Check the logs for details."
+      "request_refused": "Telos refused to send a sign-in link. Check the address. This Telos instance may not be set up to send email (SMTP_URL).",
+      "unknown": "Unexpected error. Check the logs for details.",
+      "rate_limited": "Too many sign-in attempts. Wait 15 minutes and try again."
     },
     "abort": {
       "already_configured": "This Telos account is already configured.",

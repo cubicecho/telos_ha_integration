@@ -3,10 +3,10 @@
 Telos's API keys are its AI/MCP door, so the integration signs in as a person
 with a magic link, exactly as the Telos app does:
 
-1. ``user``: server URL + email → ``requestMagicLink``. A server running with
-   ``AUTH_MAGIC_LINK=false`` answers with a session straight away.
-2. ``link``: paste the magic link (from the Telos server's log) or its token
-   → ``verifyMagicLink`` → a 30-day session token, refreshed as it is used.
+1. ``user``: server URL + email → ``signInMagicLink``. A server running with
+   ``SECURE_LOCAL_NET`` answers with a session straight away.
+2. ``link``: paste the emailed link or its token → ``magicLinkVerify`` → a
+   30-day session token, refreshed as it is used.
 
 When the session lapses the coordinator raises ConfigEntryAuthFailed and
 ``reauth_confirm`` runs the same two steps for the stored URL.
@@ -52,7 +52,6 @@ class TelosConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._url: str = ""
         self._email: str = ""
-        self._magic_link: str | None = None
 
     def _client(self, token: str | None = None) -> TelosApiClient:
         return TelosApiClient(self._url, token, async_get_clientsession(self.hass))
@@ -112,7 +111,7 @@ class TelosConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             token = _token_from_link(user_input[CONF_MAGIC_LINK])
             try:
-                session = await self._client().verify_magic_link(token)
+                session = await self._client().magic_link_verify(token)
             except TelosConnectionError:
                 errors["base"] = "cannot_connect"
             except TelosApiError:
@@ -125,13 +124,7 @@ class TelosConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="link",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_MAGIC_LINK, default=self._magic_link or vol.UNDEFINED
-                    ): str
-                }
-            ),
+            data_schema=vol.Schema({vol.Required(CONF_MAGIC_LINK): str}),
             description_placeholders={"email": self._email},
             errors=errors,
         )
@@ -139,23 +132,23 @@ class TelosConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _request_link(self) -> tuple[ConfigFlowResult | None, str]:
         """Ask for a magic link; returns the next step, or an error key."""
         try:
-            answer = await self._client().request_magic_link(self._email)
+            answer = await self._client().sign_in_magic_link(self._email)
         except TelosConnectionError:
             return None, "cannot_connect"
         except TelosApiError as err:
-            # Unauthenticated, so the only server-side refusal is the
-            # sign-in rate limit (five per address per 15 minutes).
             _LOGGER.warning("Telos refused the magic link request: %s", err)
+            if err.code == "TOO_MANY_REQUESTS":
+                return None, "rate_limited"
+            # BAD_USER_INPUT: not an address, or the instance cannot email links.
             return None, "request_refused"
         except Exception:
             _LOGGER.exception("Unexpected error requesting a Telos magic link")
             return None, "unknown"
 
         if answer.get("token") and answer.get("userId"):
-            # AUTH_MAGIC_LINK=false: signed in directly.
+            # SECURE_LOCAL_NET: signed in directly.
             return await self._finish(answer["token"], answer["userId"]), ""
 
-        self._magic_link = answer.get("magicLink")
         return await self.async_step_link(), ""
 
     async def _finish(self, token: str, user_id: str) -> ConfigFlowResult:

@@ -20,7 +20,15 @@ _TODO_FIELDS = "id title notes dueAt completedAt"
 
 
 class TelosApiError(Exception):
-    """Base exception for Telos API errors."""
+    """Base exception for Telos API errors.
+
+    ``code`` is the first GraphQL error's ``extensions.code`` (e.g.
+    ``BAD_USER_INPUT``, ``TOO_MANY_REQUESTS``), when the server gave one.
+    """
+
+    def __init__(self, message: str = "", code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class TelosConnectionError(TelosApiError):
@@ -53,34 +61,36 @@ class TelosApiClient:
     # Sign-in (no session needed)
     # ------------------------------------------------------------------
 
-    async def request_magic_link(self, email: str) -> dict[str, Any]:
-        """Ask for a magic link.
+    async def sign_in_magic_link(self, email: str) -> dict[str, Any]:
+        """Ask Telos to email a sign-in link.
 
-        With ``AUTH_MAGIC_LINK=false`` on the server the answer already holds
-        a session (``token``/``userId``). Otherwise ``magicLink`` is set only
-        when the server exposes links; it is printed to the server log either way.
+        Under ``SECURE_LOCAL_NET`` no link is sent and the answer already holds
+        a session (``token``/``userId``). Otherwise both are None and the link
+        arrives by email. An instance with no mail server refuses with
+        ``BAD_USER_INPUT``; the sign-in limiter answers ``TOO_MANY_REQUESTS``.
         """
         result = await self._graphql(
             """
-            mutation RequestMagicLink($email: String!) {
-              requestMagicLink(email: $email) { ok magicLink token userId }
+            mutation SignInMagicLink($email: String!) {
+              signInMagicLink(email: $email) { status token userId }
             }
             """,
             variables={"email": email},
         )
-        return result["data"]["requestMagicLink"]
+        return result["data"]["signInMagicLink"]
 
-    async def verify_magic_link(self, token: str) -> dict[str, Any]:
-        """Trade a magic-link token for a session (``token``/``userId``)."""
+    async def magic_link_verify(self, token: str) -> dict[str, Any]:
+        """Trade a sign-in link's token for a session: ``{"token", "userId"}``."""
         result = await self._graphql(
             """
-            mutation VerifyMagicLink($token: String!) {
-              verifyMagicLink(token: $token) { token userId }
+            mutation MagicLinkVerify($token: String!) {
+              magicLinkVerify(token: $token) { token user { id } }
             }
             """,
             variables={"token": token},
         )
-        return result["data"]["verifyMagicLink"]
+        answer = result["data"]["magicLinkVerify"]
+        return {"token": answer["token"], "userId": answer["user"]["id"]}
 
     # ------------------------------------------------------------------
     # Queries
@@ -306,11 +316,9 @@ class TelosApiClient:
             message = "; ".join(str(e.get("message", e)) for e in errors)
             # Telos answers an expired or missing session with UNAUTHENTICATED
             # on HTTP 200, as GraphQL servers do.
-            if any(
-                (e.get("extensions") or {}).get("code") == "UNAUTHENTICATED"
-                for e in errors
-            ):
-                raise TelosAuthError(message)
-            raise TelosApiError(message)
+            codes = [(e.get("extensions") or {}).get("code") for e in errors]
+            if "UNAUTHENTICATED" in codes:
+                raise TelosAuthError(message, "UNAUTHENTICATED")
+            raise TelosApiError(message, next((c for c in codes if c), None))
 
         return data

@@ -25,10 +25,10 @@ SESSION = {"token": MOCK_TOKEN, "userId": MOCK_USER_ID}
 @pytest.fixture
 def flow_client():
     client = MagicMock()
-    client.request_magic_link = AsyncMock(
-        return_value={"ok": True, "magicLink": LINK, "token": None, "userId": None}
+    client.sign_in_magic_link = AsyncMock(
+        return_value={"status": True, "token": None, "userId": None}
     )
-    client.verify_magic_link = AsyncMock(return_value=SESSION)
+    client.magic_link_verify = AsyncMock(return_value=SESSION)
     with patch(
         "custom_components.telos.config_flow.TelosApiClient", return_value=client
     ), patch("custom_components.telos.async_setup_entry", return_value=True):
@@ -54,13 +54,13 @@ async def test_magic_link_flow(hass, flow_client) -> None:
     result = await _start(hass)
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "link"
-    flow_client.request_magic_link.assert_called_once_with(MOCK_EMAIL)
+    flow_client.sign_in_magic_link.assert_called_once_with(MOCK_EMAIL)
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={"magic_link": LINK}
     )
 
-    flow_client.verify_magic_link.assert_called_once_with("magic-123")
+    flow_client.magic_link_verify.assert_called_once_with("magic-123")
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "telos.local:3001"
     assert result["data"] == {
@@ -72,22 +72,26 @@ async def test_magic_link_flow(hass, flow_client) -> None:
 
 
 async def test_direct_sign_in(hass, flow_client) -> None:
-    """AUTH_MAGIC_LINK=false hands back a session with no link step."""
-    flow_client.request_magic_link.return_value = {"ok": True, "magicLink": None, **SESSION}
+    """SECURE_LOCAL_NET hands back a session with no link step."""
+    flow_client.sign_in_magic_link.return_value = {"status": True, **SESSION}
 
     result = await _start(hass)
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_TOKEN] == MOCK_TOKEN
-    flow_client.verify_magic_link.assert_not_called()
+    flow_client.magic_link_verify.assert_not_called()
 
 
 @pytest.mark.parametrize(
     ("exc", "error"),
-    [(TelosConnectionError("down"), "cannot_connect"), (TelosApiError("slow down"), "request_refused")],
+    [
+        (TelosConnectionError("down"), "cannot_connect"),
+        (TelosApiError("slow down", "TOO_MANY_REQUESTS"), "rate_limited"),
+        (TelosApiError("cannot email links", "BAD_USER_INPUT"), "request_refused"),
+    ],
 )
 async def test_request_errors(hass, flow_client, exc, error) -> None:
-    flow_client.request_magic_link.side_effect = exc
+    flow_client.sign_in_magic_link.side_effect = exc
 
     result = await _start(hass)
 
@@ -97,7 +101,7 @@ async def test_request_errors(hass, flow_client, exc, error) -> None:
 
 
 async def test_invalid_link(hass, flow_client) -> None:
-    flow_client.verify_magic_link.side_effect = TelosApiError("Invalid or expired magic link")
+    flow_client.magic_link_verify.side_effect = TelosApiError("Invalid or expired magic link")
     result = await _start(hass)
 
     result = await hass.config_entries.flow.async_configure(
@@ -119,7 +123,7 @@ async def test_duplicate_entry_aborted(hass, flow_client, mock_config_entry) -> 
 
 
 async def test_reauth(hass, flow_client, mock_config_entry) -> None:
-    flow_client.verify_magic_link.return_value = {**SESSION, "token": "fresh-token"}
+    flow_client.magic_link_verify.return_value = {**SESSION, "token": "fresh-token"}
 
     result = await mock_config_entry.start_reauth_flow(hass)
     assert result["step_id"] == "reauth_confirm"
@@ -137,7 +141,7 @@ async def test_reauth(hass, flow_client, mock_config_entry) -> None:
 
 
 async def test_reauth_wrong_account(hass, flow_client, mock_config_entry) -> None:
-    flow_client.verify_magic_link.return_value = {**SESSION, "userId": "someone-else"}
+    flow_client.magic_link_verify.return_value = {**SESSION, "userId": "someone-else"}
 
     result = await mock_config_entry.start_reauth_flow(hass)
     result = await hass.config_entries.flow.async_configure(
