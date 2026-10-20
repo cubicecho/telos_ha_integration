@@ -1,12 +1,12 @@
 # Telos API used by this integration
 
-Endpoint: `POST {url}/graphql` (queries and mutations); `ws(s)://{url}/graphql` with the `graphql-transport-ws` subprotocol (subscriptions).
+Endpoint: `POST {url}/graphql` for queries and mutations, and for subscriptions as GraphQL over SSE (graphql-sse's distinct-connections mode: the same POST with `Accept: text/event-stream`, one request per subscription). Telos has no WebSocket server.
 The schema is generated from Telos's Drizzle schema. Its SDL is `apps/telos/server/__generated__/schema.graphql` (run `npm run codegen` in apps/telos).
 
 ## Auth
 
 - HTTP: `Authorization: Bearer <session token>`.
-- Socket: `connection_init` with `payload: {"authorization": "Bearer <token>"}`.
+- Event streams: the same `Authorization` header.
 - An expired or missing session gets a GraphQL error with `extensions.code == "UNAUTHENTICATED"` on HTTP 200.
 - Errors otherwise say `NOT_FOUND` rather than `FORBIDDEN`.
 
@@ -64,4 +64,4 @@ subscription BoardChanged($projectId: ID!) {
   boardChanged(projectId: $projectId) { projectId table }
 }
 ```
-One per project, multiplexed on one socket, with the project id as the operation id. Fires on every committed change to the project's rows, whoever made it. Only a `user` actor (a session) may subscribe. An API key gets `FORBIDDEN`.
+One SSE stream per project. Each change is `event: next` with `data: <ExecutionResult JSON>`, and the stream ends with `event: complete`. Lines starting `:` are keep-alives (about every 12 s). A refused credential is a `next` result with `extensions.code` `UNAUTHENTICATED`, followed by `complete`; Telos ends a provider-token stream that way when the token expires. Fires on every committed change to the project's rows, whoever made it. Only a `user` actor (a session) may subscribe. An API key gets `FORBIDDEN`.

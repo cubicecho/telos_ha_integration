@@ -33,7 +33,7 @@ ruff check custom_components/ tests/
 - All config stored in `entry.data` (`url`, `email`, `token`, `user_id`)
 - `entry.runtime_data` holds the typed `TelosData(coordinator=...)` dataclass
 - `TelosApiClient` owns all HTTP — coordinator calls client methods, entities call coordinator
-- Auth: `Authorization: Bearer <session token>` on HTTP; `connection_init` payload `{"authorization": "Bearer <token>"}` on the socket
+- Auth: `Authorization: Bearer <session token>` on every request, the event streams included
 
 ## Why a session, not an API key
 
