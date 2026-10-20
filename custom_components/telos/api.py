@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator, Iterable
-from typing import Any
+from typing import Any, Protocol
 
 import aiohttp
 
@@ -39,23 +39,59 @@ class TelosAuthError(TelosApiError):
     """The session token is missing, invalid or expired."""
 
 
+class TokenSource(Protocol):
+    """Where the client gets the bearer it sends."""
+
+    async def async_token(self) -> str | None:
+        """The bearer to send now, refreshed first if it is about to expire."""
+
+    async def async_refresh(self) -> bool:
+        """Get a new bearer after Telos refused one. False when there is no way to."""
+
+
+class StaticToken:
+    """A bearer that never changes: a better-auth session, or none at all."""
+
+    def __init__(self, token: str | None) -> None:
+        self._token = token
+
+    async def async_token(self) -> str | None:
+        return self._token
+
+    async def async_refresh(self) -> bool:
+        return False
+
+
 class TelosApiClient:
     """Async client for the Telos GraphQL API.
 
     Telos's ``telos_`` API keys are its AI/MCP door, so this client signs in
-    as a person: ``token`` is a better-auth session token, sent as
-    ``Authorization: Bearer <token>``. It is None only for the sign-in calls.
+    as a person. ``token`` is either a better-auth session token, or a
+    TokenSource handing out access tokens from Telos's OIDC provider (see
+    oidc.py). Both are sent as ``Authorization: Bearer <token>``. It is None
+    only for the sign-in calls.
     """
 
     def __init__(
         self,
         url: str,
-        token: str | None,
+        token: str | TokenSource | None,
         session: aiohttp.ClientSession,
     ) -> None:
-        self._graphql_url = f"{url.rstrip('/')}/graphql"
-        self._token = token
+        self._url = url.rstrip("/")
+        self._graphql_url = f"{self._url}/graphql"
+        self._auth: TokenSource = (
+            token if token is not None and not isinstance(token, str) else StaticToken(token)
+        )
         self._session = session
+
+    @property
+    def session(self) -> aiohttp.ClientSession:
+        return self._session
+
+    @property
+    def url(self) -> str:
+        return self._url
 
     # ------------------------------------------------------------------
     # Sign-in (no session needed)
@@ -92,9 +128,28 @@ class TelosApiClient:
         answer = result["data"]["magicLinkVerify"]
         return {"token": answer["token"], "userId": answer["user"]["id"]}
 
+    async def get_auth_config(self) -> dict[str, Any]:
+        """What the instance offers for signing in. Readable before signing in."""
+        result = await self._graphql(
+            """
+            query AuthConfig {
+              authConfig { magicLink secureLocalNet sso { name deviceClientId } }
+            }
+            """
+        )
+        return result["data"]["authConfig"]
+
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
+
+    async def get_user_id(self) -> str:
+        """The signed-in person's Telos user id. ``users`` lists only the caller."""
+        result = await self._graphql("query Me { users { id } }")
+        users = result["data"]["users"]
+        if not users:
+            raise TelosAuthError("Telos does not know who this is")
+        return users[0]["id"]
 
     async def get_projects(self) -> list[dict[str, Any]]:
         """Open projects, each with its open (non-archived) todos in board order.
@@ -222,9 +277,10 @@ class TelosApiClient:
                 protocols=[_WS_SUBPROTOCOL],
                 timeout=_WS_TIMEOUT,
             ) as ws:
+                token = await self._auth.async_token()
                 await ws.send_json({
                     "type": "connection_init",
-                    "payload": {"authorization": f"Bearer {self._token}"},
+                    "payload": {"authorization": f"Bearer {token}"},
                 })
                 raw = await ws.receive()
                 if raw.type != aiohttp.WSMsgType.TEXT:
@@ -289,7 +345,17 @@ class TelosApiClient:
         payload: dict[str, Any] = {"query": query}
         if variables:
             payload["variables"] = variables
-        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        try:
+            return await self._post(payload, await self._auth.async_token())
+        except TelosAuthError:
+            # An access token can be refused before its own expiry (revoked,
+            # or the clocks disagree): get a new one and try once more.
+            if not await self._auth.async_refresh():
+                raise
+            return await self._post(payload, await self._auth.async_token())
+
+    async def _post(self, payload: dict[str, Any], token: str | None) -> dict[str, Any]:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
 
         try:
             async with self._session.post(

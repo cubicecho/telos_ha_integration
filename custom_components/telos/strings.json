@@ -3,42 +3,68 @@
     "step": {
       "user": {
         "title": "Connect to Telos",
-        "description": "Enter your Telos server URL and the email you sign in with. Home Assistant signs in as you with a magic link, the same way the Telos app does.",
+        "description": "Enter your Telos server URL. Home Assistant then signs in as you, in one of the ways your Telos instance offers.",
         "data": {
-          "url": "Server URL",
-          "email": "Email"
+          "url": "Server URL"
         },
         "data_description": {
-          "url": "Base URL of your Telos server, e.g. http://192.168.1.10:3001",
-          "email": "The address of your Telos account"
+          "url": "Base URL of your Telos server, e.g. http://192.168.1.10:3001"
+        }
+      },
+      "method": {
+        "title": "Sign in to Telos",
+        "description": "How do you want to sign in?",
+        "menu_options": {
+          "browser": "Sign in with {provider} in your browser",
+          "email": "Email me a sign-in link"
+        }
+      },
+      "email": {
+        "title": "Sign in by email",
+        "description": "Enter the email you sign in to Telos with.",
+        "data": {
+          "email": "Email"
         }
       },
       "link": {
-        "title": "Paste the magic link",
+        "title": "Paste the sign-in link",
         "description": "Telos has emailed a sign-in link to {email}. Paste the whole link, or just its token. Links last 15 minutes.",
         "data": {
-          "magic_link": "Magic link"
+          "magic_link": "Sign-in link"
         }
+      },
+      "browser_retry": {
+        "title": "Sign in with {provider}",
+        "description": "The sign-in didn't finish. Submit to get a new code and try again."
       },
       "reauth_confirm": {
         "title": "Sign in to Telos again",
-        "description": "The Home Assistant session for {url} has expired. Request a new magic link to sign in again.",
-        "data": {
-          "email": "Email"
-        }
+        "description": "Home Assistant's sign-in for {url} has expired or was revoked. Continue to sign in again."
       }
+    },
+    "progress": {
+      "wait_for_approval": "Open [{url}]({url}) and sign in with {provider}. Check that the code shown there is **{code}**, then approve Home Assistant. This window carries on by itself once you have."
     },
     "error": {
       "cannot_connect": "Failed to connect to the Telos server. Check the URL and that the server is running.",
-      "invalid_link": "That magic link is invalid or has expired (links last 15 minutes). Start again to get a new one.",
+      "cannot_connect_provider": "Failed to reach the sign-in provider. Check that it is running and that Home Assistant can reach it.",
+      "invalid_link": "That sign-in link is invalid or has expired (links last 15 minutes). Start again to get a new one.",
       "request_refused": "Telos refused to send a sign-in link. Check the address. This Telos instance may not be set up to send email (SMTP_URL).",
-      "unknown": "Unexpected error. Check the logs for details.",
-      "rate_limited": "Too many sign-in attempts. Wait 15 minutes and try again."
+      "rate_limited": "Too many sign-in attempts. Wait 15 minutes and try again.",
+      "device_expired": "The code expired before it was approved.",
+      "device_denied": "The sign-in was denied.",
+      "unknown": "Unexpected error. Check the logs for details."
     },
     "abort": {
       "already_configured": "This Telos account is already configured.",
       "reauth_successful": "Signed in to Telos again.",
-      "wrong_account": "That magic link signed in a different Telos account than this entry belongs to."
+      "wrong_account": "That sign-in is for a different Telos account than this entry belongs to.",
+      "cannot_connect": "Failed to connect to the Telos server.",
+      "cannot_connect_provider": "Failed to reach the sign-in provider. Check that it is running and that Home Assistant can reach it.",
+      "no_sign_in_method": "This Telos instance offers no way for Home Assistant to sign in. Its admin needs to set up email (SMTP_URL) or a sign-in provider.",
+      "device_sign_in_off": "This Telos instance signs in with {provider}, but device sign-in isn't set up. Its admin needs to register a device client at {provider} and set OIDC_DEVICE_CLIENT_ID on Telos.",
+      "device_start_failed": "{provider} refused to start a device sign-in. Check that the Home Assistant client has the device grant and is allowed for the Telos API.",
+      "token_refused": "Telos didn't accept the sign-in from {provider}. Sign in to Telos in your browser with {provider} once, so Telos links the account, then try again."
     }
   }
 }

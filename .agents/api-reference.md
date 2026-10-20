@@ -10,6 +10,31 @@ The schema is generated from Telos's Drizzle schema. Its SDL is `apps/telos/serv
 - An expired or missing session gets a GraphQL error with `extensions.code == "UNAUTHENTICATED"` on HTTP 200.
 - Errors otherwise say `NOT_FOUND` rather than `FORBIDDEN`.
 
+### Discovery (no token)
+
+```graphql
+query AuthConfig {
+  authConfig { magicLink secureLocalNet sso { name deviceClientId } }
+}
+```
+`sso` is null when no provider is set up. `deviceClientId` is null until the admin sets `OIDC_DEVICE_CLIENT_ID`.
+
+`GET {url}/.well-known/oauth-protected-resource` (RFC 9728): `{ "resource": <audience>, "authorization_servers": [<issuer>], "bearer_methods_supported": ["header"] }`.
+
+### Provider device flow (RFC 8628, at the issuer)
+
+- `GET {issuer}/.well-known/openid-configuration`, then check that `issuer` matches, and read `device_authorization_endpoint` and `token_endpoint`.
+- `POST device_authorization_endpoint` form `client_id`, `scope=openid email offline_access`, `resource=<audience>`. The answer has `device_code user_code verification_uri verification_uri_complete expires_in interval`.
+- `POST token_endpoint` form `grant_type=urn:ietf:params:oauth:grant-type:device_code`, `device_code`, `client_id`. The answer is `authorization_pending` / `slow_down` (add 5 s) / `access_denied` / `expired_token`, or the tokens.
+- Refresh: `POST token_endpoint` form `grant_type=refresh_token`, `refresh_token`, `client_id`, `resource=<audience>`.
+
+### Who am I
+
+```graphql
+query Me { users { id } }
+```
+`users` lists only the caller. It is used after the device flow, to find the Telos user id behind the provider token.
+
 ### Sign-in (no token)
 
 ```graphql
