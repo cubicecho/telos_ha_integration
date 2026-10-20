@@ -13,16 +13,16 @@ The schema is generated from Telos's Drizzle schema. Its SDL is `apps/telos/serv
 ### Sign-in (no token)
 
 ```graphql
-mutation RequestMagicLink($email: String!) {
-  requestMagicLink(email: $email) { ok magicLink token userId }
+mutation SignInMagicLink($email: String!) {
+  signInMagicLink(email: $email) { status token userId }
 }
 ```
-- `AUTH_MAGIC_LINK=false` → `token` / `userId` are a live session, so no link step is needed.
-- Otherwise the link is printed to the server log, and `magicLink` is set only when the server exposes it (outside production, or with `EXPOSE_MAGIC_LINK`). Links last 15 min. Five requests per address per 15 min, then it errors.
+- `SECURE_LOCAL_NET` → `token` / `userId` are a live session, so no link step is needed.
+- Otherwise the link is emailed (only when the instance has `SMTP_URL`; without it the mutation fails with `BAD_USER_INPUT`). Links last 15 min. Too many attempts give `TOO_MANY_REQUESTS`.
 
 ```graphql
-mutation VerifyMagicLink($token: String!) {
-  verifyMagicLink(token: $token) { token userId }
+mutation MagicLinkVerify($token: String!) {
+  magicLinkVerify(token: $token) { token user { id } }
 }
 ```
 Link format: `{APP_URL}/auth/verify?token=<token>`. A bad token gives `BAD_USER_INPUT`.
