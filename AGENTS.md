@@ -33,7 +33,7 @@ ruff check custom_components/ tests/
 - All config stored in `entry.data`: `url`, `user_id`, `auth_method`, plus `email`/`token` for a session or the OIDC tokens (see `.agents/integration-structure.md` → Sign-in)
 - `entry.runtime_data` holds the typed `TelosData(coordinator=...)` dataclass
 - `TelosApiClient` owns all HTTP — coordinator calls client methods, entities call coordinator
-- Auth: `Authorization: Bearer <token>` on HTTP; `connection_init` payload `{"authorization": "Bearer <token>"}` on the socket. The token is a better-auth session, or an access token from Telos's OIDC provider with Telos as its audience
+- Auth: `Authorization: Bearer <token>` on every request, the event streams included. The token is a better-auth session, or an access token from Telos's OIDC provider with Telos as its audience
 
 ## Why a person, not an API key
 

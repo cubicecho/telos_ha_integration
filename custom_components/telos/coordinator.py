@@ -87,17 +87,33 @@ class TelosCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Keep a live boardChanged subscription and refresh on every event.
 
         Reconnects after any error, and whenever the set of projects changes.
+        A stream that ran a while and then had its credential refused
+        reconnects at once: Telos ends a stream that way when an access token
+        expires, and the next connect brings a fresh one. A refusal straight
+        after connecting waits like any error (polling is what starts reauth).
         Exits cleanly when the background task is cancelled (entry unloaded).
         """
         while True:
             self._subscribed_ids = self.project_ids
             interrupt = None
+            started = self._now()
             try:
                 async with asyncio.timeout(None) as interrupt:
                     self._interrupt = interrupt
                     await self._consume(self._subscribed_ids)
             except asyncio.CancelledError:
                 return
+            except TelosAuthError as err:
+                if self._now() - started > _RETRY_DELAY:
+                    _LOGGER.debug("Telos ended the board stream (%s) — reconnecting", err)
+                    continue
+                _LOGGER.warning(
+                    "Telos refused the board stream (%s) — retrying in %ds",
+                    err,
+                    _RETRY_DELAY,
+                )
+                if not await self._sleep():
+                    return
             except Exception as err:  # noqa: BLE001
                 if interrupt is not None and interrupt.expired():
                     continue  # the project set changed; reconnect now
@@ -106,12 +122,21 @@ class TelosCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     err,
                     _RETRY_DELAY,
                 )
-                try:
-                    await asyncio.sleep(_RETRY_DELAY)
-                except asyncio.CancelledError:
+                if not await self._sleep():
                     return
             finally:
                 self._interrupt = None
+
+    def _now(self) -> float:
+        return asyncio.get_running_loop().time()
+
+    async def _sleep(self) -> bool:
+        """Wait before reconnecting. False when the task was cancelled meanwhile."""
+        try:
+            await asyncio.sleep(_RETRY_DELAY)
+        except asyncio.CancelledError:
+            return False
+        return True
 
     async def _consume(self, project_ids: frozenset[str]) -> None:
         if not project_ids:
