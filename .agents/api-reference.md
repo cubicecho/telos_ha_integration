@@ -1,14 +1,39 @@
 # Telos API used by this integration
 
-Endpoint: `POST {url}/graphql` (queries and mutations); `ws(s)://{url}/graphql` with the `graphql-transport-ws` subprotocol (subscriptions).
+Endpoint: `POST {url}/graphql` for queries and mutations, and for subscriptions as GraphQL over SSE (graphql-sse's distinct-connections mode: the same POST with `Accept: text/event-stream`, one request per subscription). Telos has no WebSocket server.
 The schema is generated from Telos's Drizzle schema. Its SDL is `apps/telos/server/__generated__/schema.graphql` (run `npm run codegen` in apps/telos).
 
 ## Auth
 
 - HTTP: `Authorization: Bearer <session token>`.
-- Socket: `connection_init` with `payload: {"authorization": "Bearer <token>"}`.
+- Event streams: the same `Authorization` header.
 - An expired or missing session gets a GraphQL error with `extensions.code == "UNAUTHENTICATED"` on HTTP 200.
 - Errors otherwise say `NOT_FOUND` rather than `FORBIDDEN`.
+
+### Discovery (no token)
+
+```graphql
+query AuthConfig {
+  authConfig { magicLink secureLocalNet sso { name deviceClientId } }
+}
+```
+`sso` is null when no provider is set up. `deviceClientId` is null until the admin sets `OIDC_DEVICE_CLIENT_ID`.
+
+`GET {url}/.well-known/oauth-protected-resource` (RFC 9728): `{ "resource": <audience>, "authorization_servers": [<issuer>], "bearer_methods_supported": ["header"] }`.
+
+### Provider device flow (RFC 8628, at the issuer)
+
+- `GET {issuer}/.well-known/openid-configuration`, then check that `issuer` matches, and read `device_authorization_endpoint` and `token_endpoint`.
+- `POST device_authorization_endpoint` form `client_id`, `scope=openid email offline_access`, `resource=<audience>`. The answer has `device_code user_code verification_uri verification_uri_complete expires_in interval`.
+- `POST token_endpoint` form `grant_type=urn:ietf:params:oauth:grant-type:device_code`, `device_code`, `client_id`. The answer is `authorization_pending` / `slow_down` (add 5 s) / `access_denied` / `expired_token`, or the tokens.
+- Refresh: `POST token_endpoint` form `grant_type=refresh_token`, `refresh_token`, `client_id`, `resource=<audience>`.
+
+### Who am I
+
+```graphql
+query Me { users { id } }
+```
+`users` lists only the caller. It is used after the device flow, to find the Telos user id behind the provider token.
 
 ### Sign-in (no token)
 
@@ -64,4 +89,4 @@ subscription BoardChanged($projectId: ID!) {
   boardChanged(projectId: $projectId) { projectId table }
 }
 ```
-One per project, multiplexed on one socket, with the project id as the operation id. Fires on every committed change to the project's rows, whoever made it. Only a `user` actor (a session) may subscribe. An API key gets `FORBIDDEN`.
+One SSE stream per project. Each change is `event: next` with `data: <ExecutionResult JSON>`, and the stream ends with `event: complete`. Lines starting `:` are keep-alives (about every 12 s). A refused credential is a `next` result with `extensions.code` `UNAUTHENTICATED`, followed by `complete`; Telos ends a provider-token stream that way when the token expires. Fires on every committed change to the project's rows, whoever made it. Only a `user` actor (a session) may subscribe. An API key gets `FORBIDDEN`.
