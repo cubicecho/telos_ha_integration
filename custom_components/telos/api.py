@@ -278,7 +278,7 @@ class TelosApiClient:
         refuses the credential (it ends a stream that way when an access token
         expires), and TelosConnectionError when any stream drops.
         """
-        queue: asyncio.Queue[dict[str, Any] | BaseException] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any] | BaseException | _StreamDone] = asyncio.Queue()
         ids = list(project_ids)
         tasks = [
             asyncio.create_task(self._watch_board(project_id, queue)) for project_id in ids
@@ -300,7 +300,7 @@ class TelosApiClient:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _watch_board(
-        self, project_id: str, queue: asyncio.Queue[dict[str, Any] | BaseException]
+        self, project_id: str, queue: asyncio.Queue[dict[str, Any] | BaseException | _StreamDone]
     ) -> None:
         """One project's stream, into the shared queue."""
         try:
